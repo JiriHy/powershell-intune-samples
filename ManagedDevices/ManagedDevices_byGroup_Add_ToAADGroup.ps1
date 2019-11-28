@@ -593,7 +593,6 @@ Function Get-ManagedDeviceUser(){
 
         $ur = "https://graph.microsoft.com/$graphApiVersion/$($Resource)"
            
-        write-host $ur
         (Invoke-RestMethod -Uri $ur -Headers $authToken -Method Get).userID
     
         }
