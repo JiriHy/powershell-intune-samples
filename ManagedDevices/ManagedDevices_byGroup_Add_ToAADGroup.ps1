@@ -316,14 +316,63 @@ $Group_resource = "groups"
 
 Function Get-AADDevice(){
 
+    <#
+    .SYNOPSIS
+    This function is used to get an AAD Device from the Graph API REST interface
+    .DESCRIPTION
+    The function connects to the Graph API Interface and gets an AAD Device registered with AAD
+    .EXAMPLE
+    Get-AADDevice -DeviceID $DeviceID
+    Returns an AAD Device from Azure AD
+    .NOTES
+    NAME: Get-AADDevice
+    #>
+    
+    [cmdletbinding()]
+    
+    param
+    (
+        $DeviceID
+    )
+    
+    # Defining Variables
+    $graphApiVersion = "v1.0"
+    $Resource = "devices"
+        
+        try {
+    
+        $uri = "https://graph.microsoft.com/$graphApiVersion/$($Resource)?`$filter=deviceId eq '$DeviceID'"
+    
+        (Invoke-RestMethod -Uri $uri -Headers $authToken -Method Get).value 
+    
+        }
+    
+        catch {
+    
+        $ex = $_.Exception
+        $errorResponse = $ex.Response.GetResponseStream()
+        $reader = New-Object System.IO.StreamReader($errorResponse)
+        $reader.BaseStream.Position = 0
+        $reader.DiscardBufferedData()
+        $responseBody = $reader.ReadToEnd();
+        Write-Host "Response content:`n$responseBody" -f Red
+        Write-Error "Request to $Uri failed with HTTP Status $($ex.Response.StatusCode) $($ex.Response.StatusDescription)"
+        write-host
+        break
+    
+        }
+    
+    }
+Function Get-ManagedDevice(){
+
 <#
 .SYNOPSIS
-This function is used to get an AAD Device from the Graph API REST interface
+This function is used to get a Managed Device from the Graph API REST interface
 .DESCRIPTION
-The function connects to the Graph API Interface and gets an AAD Device registered with AAD
+The function connects to the Graph API Interface and gets a Managed Device enrolled in MDM
 .EXAMPLE
-Get-AADDevice -DeviceID $DeviceID
-Returns an AAD Device from Azure AD
+Get-ManagedDevice -DeviceID $DeviceID
+Returns a Managed Device from Azure AD
 .NOTES
 NAME: Get-AADDevice
 #>
@@ -337,11 +386,11 @@ param
 
 # Defining Variables
 $graphApiVersion = "v1.0"
-$Resource = "devices"
+$Resource = "devicemanagement/manageddevices"
     
     try {
 
-    $uri = "https://graph.microsoft.com/$graphApiVersion/$($Resource)?`$filter=deviceId eq '$DeviceID'"
+    $uri = "https://graph.microsoft.com/$graphApiVersion/$($Resource)/$DeviceID"
 
     (Invoke-RestMethod -Uri $uri -Headers $authToken -Method Get).value 
 
@@ -444,13 +493,13 @@ Returns all managed devices including EAS devices registered within the Intune S
 NAME: Get-ManagedDevices
 #>
 
-[cmdletbinding()]
+#[cmdletbinding()]
 
-param
-(
-    [switch]$IncludeEAS,
-    [switch]$ExcludeMDM
-)
+#param
+#(
+#    [switch]$IncludeEAS,
+#    [switch]$ExcludeMDM
+#)
 
 # Defining Variables
 $graphApiVersion = "beta"
@@ -485,8 +534,9 @@ try {
         
         else {
     
-        $uri = "https://graph.microsoft.com/$graphApiVersion/$Resource"#`?`$filter=managementAgent eq 'mdm' and managementAgent eq 'easmdm'"
-        Write-Warning "EAS Devices are excluded by default, please use -IncludeEAS if you want to include those devices"
+        $uri = "https://graph.microsoft.com/$graphApiVersion/$Resource"    
+        #`?`$filter=managementAgent eq 'mdm' and managementAgent eq 'easmdm'"
+        #Write-Warning "EAS Devices are excluded by default, please use -IncludeEAS if you want to include those devices"
         Write-Host
 
         }
@@ -513,7 +563,57 @@ try {
 }
 
 ####################################################
+Function Get-ManagedDeviceUser(){
 
+    <#
+    .SYNOPSIS
+    This function is used to get a Managed Device userPrincipalName from the Graph API REST interface
+    .DESCRIPTION
+    The function connects to the Graph API Interface and gets a managed device users registered with Intune MDM
+    .EXAMPLE
+    Get-ManagedDeviceUser -DeviceID $DeviceID
+    Returns a managed device user registered in Intune
+    .NOTES
+    NAME: Get-ManagedDeviceUser
+    #>
+    
+    [cmdletbinding()]
+    
+    param
+    (
+        [Parameter(Mandatory=$true,HelpMessage="DeviceID (guid) for the device on must be specified:")]
+        $DeviceID
+    )
+    
+    # Defining Variables
+    $graphApiVersion = "beta"
+    $Resource = "deviceManagement/manageddevices('$DeviceID')?`$select=userID"
+
+    try {
+
+        $ur = "https://graph.microsoft.com/$graphApiVersion/$($Resource)"
+           
+        write-host $ur
+        (Invoke-RestMethod -Uri $ur -Headers $authToken -Method Get).userID
+    
+        }
+    
+        catch {
+    
+        $ex = $_.Exception
+        $errorResponse = $ex.Response.GetResponseStream()
+        $reader = New-Object System.IO.StreamReader($errorResponse)
+        $reader.BaseStream.Position = 0
+        $reader.DiscardBufferedData()
+        $responseBody = $reader.ReadToEnd();
+        Write-Host "Response content:`n$responseBody" -f Red
+        Write-Error "Request to $Uri failed with HTTP Status $($ex.Response.StatusCode) $($ex.Response.StatusDescription)"
+        write-host
+        break
+    
+        }
+    
+    }
 #region Authentication
 
 write-host
@@ -601,13 +701,13 @@ $UserGroupId = (get-AADGroup -GroupName "$AADUserGroup").id
     exit
 
     }
-
-    else {
+    else
+    {   
 
     $UserGroupMembers = Get-AADGroup -GroupName "$AADUserGroup" -Members
-
     }
 
+    
 #endregion
 
 ####################################################
@@ -642,15 +742,16 @@ if($Devices){
     $DeviceID = $Device.id
     $AAD_DeviceID = $Device.azureActiveDirectoryDeviceId
     $LSD = $Device.lastSyncDateTime
-    $userId = $Device.userPrincipalName
+   # $userId = $Device.userPrincipalName
 
     # Getting User information from AAD to get the users displayName
 
+    $userId = Get-ManagedDeviceUser -DeviceID $DeviceID
     $User = Get-AADUser -userPrincipalName $userId
 
         # Filtering on the user's group membership to add users device to a specific group
 
-        if($UserGroupMembers.id -contains $User.id){
+        if($UserGroupMembers.userPrincipalName -contains $User.userPrincipalName){
         Write-Host "----------------------------------------------------"
         Write-Host
         write-host "Device Name:"$Device.deviceName -f Green
@@ -672,7 +773,7 @@ if($Devices){
 
         # Getting Device information from Azure AD Devices
 
-        $AAD_Device = Get-AADDevice -DeviceID $AAD_DeviceID       
+        $AAD_Device = Get-AADDevice -DeviceID $AAD_deviceID       
 
         $AAD_Id = $AAD_Device.id
 
@@ -702,8 +803,8 @@ if($Devices){
     
     Write-Host "----------------------------------------------------"
     Write-Host
-    Write-Host "$count devices added to AAD Group '$AADGroup' with filter '$filterName'..." -ForegroundColor Green
-    Write-Host "$countAdded devices already in AAD Group '$AADGroup' with filter '$filterName'..." -ForegroundColor Yellow
+    Write-Host "$count devices added to AAD Group '$AADGroup' " -ForegroundColor Green
+    Write-Host "$countAdded devices already in AAD Group '$AADGroup' " -ForegroundColor Yellow
     Write-Host
 
 }
