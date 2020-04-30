@@ -1,4 +1,6 @@
 
+
+
 <#
 
 .COPYRIGHT
@@ -427,6 +429,34 @@ $JSON = @"
 
 ####################################################
 
+function Get-Rest($uri, $token)
+{
+
+    $params = @{
+        ContentType = 'application/json'
+        Headers     = @{
+            'authorization' = $token
+        }
+        Method      = 'Get'
+        URI         = $uri
+    }
+    #endregion
+
+    #region execute rest and wait for response
+    try
+    {
+        # With "Invoke-RestMethod" there is no answer returned to check for StatusCode
+        $response = Invoke-RestMethod @params
+        return $response
+    }
+    catch
+    {
+        Write-Host ("Error in the HTTP request...") -ForegroundColor Red
+        Write-Host $Error[0] -ForegroundColor Yellow
+        break
+    }
+}
+
 Function Get-ManagedDevices(){
 
 <#
@@ -446,53 +476,49 @@ NAME: Get-ManagedDevices
 
 [cmdletbinding()]
 
-param
+<# param
 (
     [switch]$IncludeEAS,
     [switch]$ExcludeMDM
-)
+) #>
 
 # Defining Variables
 $graphApiVersion = "beta"
 $Resource = "deviceManagement/managedDevices"
 
 try {
-
-    $Count_Params = 0
-
-    if($IncludeEAS.IsPresent){ $Count_Params++ }
-    if($ExcludeMDM.IsPresent){ $Count_Params++ }
-        
-        if($Count_Params -gt 1){
-
-        write-warning "Multiple parameters set, specify a single parameter -IncludeEAS, -ExcludeMDM or no parameter against the function"
-        Write-Host
-        break
-
-        }
-        
-        elseif($IncludeEAS){
-
+    
         $uri = "https://graph.microsoft.com/$graphApiVersion/$Resource"
 
-        }
+        #  (Invoke-RestMethod -Uri $uri -Headers $authToken -Method Get).Value
+            
+          <#   $DevicesResponse = Invoke-RestMethod -Uri $uri –Headers $authToken –Method Get
 
-        elseif($ExcludeMDM){
+            $Devices = $DevicesResponse.value
 
-        $uri = "https://graph.microsoft.com/$graphApiVersion/$Resource`?`$filter=managementAgent eq 'eas'"
+            $DevicesNextLink = $DevicesResponse."@odata.nextLink"
 
-        }
-        
-        else {
-    
-        $uri = "https://graph.microsoft.com/$graphApiVersion/$Resource`?`$filter=managementAgent eq 'mdm' and managementAgent eq 'easmdm'"
-        Write-Warning "EAS Devices are excluded by default, please use -IncludeEAS if you want to include those devices"
-        Write-Host
+             while ($DevicesNextLink -ne $null){
 
-        }
+                $DevicesResponse = (Invoke-RestMethod -Uri $DevicesNextLink –Headers $authToken –Method Get -Verbose)
+                $DevicesNextLink = $DevicesResponse."@odata.nextLink"
+                $Devices += $DevicesResponse.value
 
-        (Invoke-RestMethod -Uri $uri -Headers $authToken -Method Get).Value
-    
+            }
+            return $Devices #>
+
+            $resp = Get-Rest -token $authToken.Authorization -uri $uri
+            $retVal += $resp
+            
+            if($resp.NextLink)
+            {
+                while($resp.nextLink)
+                {
+                    $resp = Get-Rest -token $authToken.Authorization -uri $resp.nextLink
+                    $retVal += $resp
+                }
+            }
+            return $retVal.Value
     }
 
     catch {
@@ -626,80 +652,81 @@ Write-Host
 
 $Devices = Get-ManagedDevices
 
+
 if($Devices){
 
-    Write-Host "Intune Managed Devices found..." -ForegroundColor Yellow
+    Write-Host "Intune Managed Devices found:" $Devices.Count -ForegroundColor Yellow
     Write-Host
 
-    foreach($Device in $Devices){
+    # foreach($Device in $Devices){
 
-    $DeviceID = $Device.id
-    $AAD_DeviceID = $Device.azureActiveDirectoryDeviceId
-    $LSD = $Device.lastSyncDateTime
-    $userId = $Device.userPrincipalName
+    # $DeviceID = $Device.id
+    # $AAD_DeviceID = $Device.azureActiveDirectoryDeviceId
+    # $LSD = $Device.lastSyncDateTime
+    # $userId = $Device.userPrincipalName
 
-    # Getting User information from AAD to get the users displayName
+    # # Getting User information from AAD to get the users displayName
 
-    $User = Get-AADUser -userPrincipalName $userIdZ
+    # $User = Get-AADUser -userPrincipalName $userIdZ
 
-        # Filtering on the display Name to add users device to a specific group
+    #     # Filtering on the display Name to add users device to a specific group
 
-        if(($User.displayName).contains("$FilterName")){
+    #     if(($User.displayName).contains("$FilterName")){
 
-        Write-Host "----------------------------------------------------"
-        Write-Host
+    #     Write-Host "----------------------------------------------------"
+    #     Write-Host
 
-        write-host "Device Name:"$Device.deviceName -f Green
-        write-host "Management State:"$Device.managementState
-        write-host "Operating System:"$Device.operatingSystem
-        write-host "Device Type:"$Device.deviceType
-        write-host "Last Sync Date Time:"$Device.lastSyncDateTime
-        write-host "Jail Broken:"$Device.jailBroken
-        write-host "Compliance State:"$Device.complianceState
-        write-host "Enrollment Type:"$Device.enrollmentType
-        write-host "AAD Registered:"$Device.aadRegistered
-        Write-Host "UPN:"$Device.userPrincipalName
-        write-host
-        write-host "User Details:" -f Green
-        write-host "User Display Name:"$User.displayName
+    #     write-host "Device Name:"$Device.deviceName -f Green
+    #     write-host "Management State:"$Device.managementState
+    #     write-host "Operating System:"$Device.operatingSystem
+    #     write-host "Device Type:"$Device.deviceType
+    #     write-host "Last Sync Date Time:"$Device.lastSyncDateTime
+    #     write-host "Jail Broken:"$Device.jailBroken
+    #     write-host "Compliance State:"$Device.complianceState
+    #     write-host "Enrollment Type:"$Device.enrollmentType
+    #     write-host "AAD Registered:"$Device.aadRegistered
+    #     Write-Host "UPN:"$Device.userPrincipalName
+    #     write-host
+    #     write-host "User Details:" -f Green
+    #     write-host "User Display Name:"$User.displayName
 
-        Write-Host "Adding user device" $Device.deviceName "to AAD Group $AADGroup..." -ForegroundColor Yellow
+    #     Write-Host "Adding user device" $Device.deviceName "to AAD Group $AADGroup..." -ForegroundColor Yellow
 
-        # Getting Device information from Azure AD Devices
+    #     # Getting Device information from Azure AD Devices
 
-        $AAD_Device = Get-AADDevice -DeviceID $AAD_DeviceID       
+    #     $AAD_Device = Get-AADDevice -DeviceID $AAD_DeviceID       
 
-        $AAD_Id = $AAD_Device.id
+    #     $AAD_Id = $AAD_Device.id
 
-            if($GroupMembers.id -contains $AAD_Id){
+    #         if($GroupMembers.id -contains $AAD_Id){
 
-            Write-Host "Device already exists in AAD Group..." -ForegroundColor Red
+    #         Write-Host "Device already exists in AAD Group..." -ForegroundColor Red
 
-            $countAdded++
+    #         $countAdded++
 
-            }
+    #         }
 
-            else {
+    #         else {
 
-            Write-Host "Adding Device to AAD Group..." -ForegroundColor Yellow
+    #         Write-Host "Adding Device to AAD Group..." -ForegroundColor Yellow
 
-            Add-AADGroupMember -GroupId $GroupId -AADMemberId $AAD_Id
+    #         Add-AADGroupMember -GroupId $GroupId -AADMemberId $AAD_Id
 
-            $count++
+    #         $count++
 
-            }
+    #         }
 
-        Write-Host
+    #     Write-Host
 
-        }
+    #     }
 
-    }
+    # }
     
-    Write-Host "----------------------------------------------------"
-    Write-Host
-    Write-Host "$count devices added to AAD Group '$AADGroup' with filter '$filterName'..." -ForegroundColor Green
-    Write-Host "$countAdded devices already in AAD Group '$AADGroup' with filter '$filterName'..." -ForegroundColor Yellow
-    Write-Host
+    # Write-Host "----------------------------------------------------"
+    # Write-Host
+    # Write-Host "$count devices added to AAD Group '$AADGroup' with filter '$filterName'..." -ForegroundColor Green
+    # Write-Host "$countAdded devices already in AAD Group '$AADGroup' with filter '$filterName'..." -ForegroundColor Yellow
+    # Write-Host
 
 }
 

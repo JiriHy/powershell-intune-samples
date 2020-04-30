@@ -284,8 +284,9 @@ $Group_resource = "groups"
                 $Group.displayName
                 write-host
 
-                $uri = "https://graph.microsoft.com/$graphApiVersion/$($Group_resource)/$GID/Members"
-                (Invoke-RestMethod -Uri $uri -Headers $authToken -Method Get).Value
+                #$uri = "https://graph.microsoft.com/$graphApiVersion/$($Group_resource)/$GID/Members"
+                #(Invoke-RestMethod -Uri $uri -Headers $authToken -Method Get).Value
+                Get-AzureADGroupMember -ObjectId $GID
 
                 }
 
@@ -341,7 +342,7 @@ Function Get-AADDevice(){
         
         try {
     
-        $uri = "https://graph.microsoft.com/$graphApiVersion/$($Resource)?`$filter=deviceId eq '$DeviceID'"
+        $uri = "https://graph.microsoft.com/$graphApiVersion/$Resource`?`$filter=deviceId eq '$DeviceID'"
     
         (Invoke-RestMethod -Uri $uri -Headers $authToken -Method Get).value 
     
@@ -561,6 +562,72 @@ try {
     }
 
 }
+####################################################
+
+Function Get-UserManagedDevices{
+
+    <#
+    .SYNOPSIS
+    This function is used to get Intune Managed Devices for a specified user from the Graph API REST interface
+    .DESCRIPTION
+    The function connects to the Graph API Interface and gets Intune Managed Devices
+    .EXAMPLE
+    Get-UserManagedDevices ({UserPrincipalName})
+    Returns all managed devices registered within the Intune Service for a specified user
+    .EXAMPLE
+    Get-ManagedDevices(apiazza@contoso.com)
+    Returns all managed devices registered within the Intune Service for user apiazza@contoso.com
+    .NOTES
+    NAME: Get-UserManagedDevices
+    #>
+    
+   # [cmdletbinding()]
+   Param
+   (
+        [Parameter(Mandatory=$true, Position=0)]
+        [string] $User
+   )  
+    # Defining Variables
+    $graphApiVersion = "beta"
+    $Resource = "deviceManagement/managedDevices"
+    
+    try {
+             
+            if(!$User){
+    
+            write-warning "User parameter not specified"
+            Write-Host
+            break
+            }
+            
+            else 
+            {
+        
+            $uri = "https://graph.microsoft.com/$graphApiVersion/$Resource`?`$filter=UserPrincipalName eq '$User'"
+
+            }
+            
+    
+            (Invoke-RestMethod -Uri $uri -Headers $authToken -Method Get).Value
+        
+        }
+    
+        catch {
+    
+        $ex = $_.Exception
+        $errorResponse = $ex.Response.GetResponseStream()
+        $reader = New-Object System.IO.StreamReader($errorResponse)
+        $reader.BaseStream.Position = 0
+        $reader.DiscardBufferedData()
+        $responseBody = $reader.ReadToEnd();
+        Write-Host "Response content:`n$responseBody" -f Red
+        Write-Error "Request to $Uri failed with HTTP Status $($ex.Response.StatusCode) $($ex.Response.StatusDescription)"
+        write-host
+        break
+    
+        }
+    
+    }
 
 ####################################################
 Function Get-ManagedDeviceUser(){
@@ -646,7 +713,7 @@ if($global:authToken){
 }
 
 # Authentication doesn't exist, calling Get-AuthToken function
-
+# Connect-AzureAD
 else {
 
     if($User -eq $null -or $User -eq ""){
@@ -658,6 +725,7 @@ else {
 
 # Getting the authorization token
 $global:authToken = Get-AuthToken -User $User
+Connect-AzureAD -AadAccessToken $global:authToken
 
 }
 
@@ -682,8 +750,8 @@ $GroupId = (get-AADGroup -GroupName "$AADGroup").id
     }
 
     else {
-
-    $GroupMembers = Get-AADGroup -GroupName "$AADGroup" -Members
+    
+    $GroupMembers = Get-AzureADGroupMember -ObjectId $GroupId
 
     }
 
@@ -701,8 +769,7 @@ $UserGroupId = (get-AADGroup -GroupName "$AADUserGroup").id
 
     }
     else
-    {   
-
+    { 
     $UserGroupMembers = Get-AADGroup -GroupName "$AADUserGroup" -Members
     }
 
@@ -729,14 +796,19 @@ Write-Host
 Write-Host "Checking if any Managed Devices are registered with Intune..." -ForegroundColor Cyan
 Write-Host
 
-$Devices = Get-ManagedDevices
+foreach ($UserObject in $UserGroupMembers)
+    {
+    if ($UserObject.UserPrincipalName)
+    {
+    $Devices=Get-UserManagedDevices $UserObject.UserPrincipalName
 
-if($Devices){
+    if($Devices){
 
     Write-Host "Intune Managed Devices found..." -ForegroundColor Yellow
     Write-Host
 
-    foreach($Device in $Devices){
+    foreach($Device in $Devices)
+    {
 
     $DeviceID = $Device.id
     $AAD_DeviceID = $Device.azureActiveDirectoryDeviceId
@@ -746,11 +818,11 @@ if($Devices){
     # Getting User information from AAD to get the users displayName
 
     $userId = Get-ManagedDeviceUser -DeviceID $DeviceID
-    $User = Get-AADUser -userPrincipalName $userId
+    $User = $UserObject.UserPrincipalName
 
         # Filtering on the user's group membership to add users device to a specific group
 
-        if($UserGroupMembers.userPrincipalName -contains $User.userPrincipalName){
+        
         Write-Host "----------------------------------------------------"
         Write-Host
         write-host "Device Name:"$Device.deviceName -f Green
@@ -796,7 +868,7 @@ if($Devices){
 
         Write-Host
 
-        }
+        
 
     }
     
@@ -808,9 +880,10 @@ if($Devices){
 
 }
 
-else {
+    else {
 
 write-host "No Intune Managed Devices found..." -f green
 Write-Host
-
+    }   
 }
+    } 
